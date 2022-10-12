@@ -13,6 +13,7 @@ from torchvision.utils import save_image, make_grid
 
 from vq_vae.util import setup_logging_from_args
 from vq_vae.auto_encoder import *
+import dill
 
 models = {
     'custom': {'vqvae': VQ_CVAE,
@@ -51,9 +52,8 @@ dataset_n_channels = {
 }
 
 dataset_transforms = {
-    'custom': transforms.Compose([transforms.Resize(256), transforms.CenterCrop(256),
-                                    transforms.ToTensor(),
-                                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
+    'custom': transforms.Compose([transforms.ToTensor(),
+                                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
     'imagenet': transforms.Compose([transforms.Resize(256), transforms.CenterCrop(256),
                                     transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
@@ -189,6 +189,7 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
             data = data.cuda()
         optimizer.zero_grad()
         outputs = model(data)
+        if (epoch==args.epochs): save_latents(outputs, batch_idx, 'latent_variables/', epoch, 'train')
         loss = model.loss_function(data, *outputs)
         loss.backward()
         optimizer.step()
@@ -213,7 +214,7 @@ def train(epoch, model, train_loader, optimizer, cuda, log_interval, save_path, 
             for key in latest_losses:
                 losses[key + '_train'] = 0
         if batch_idx == (len(train_loader) - 1):
-            save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_train')
+            save_reconstructed_images(data, epoch, outputs, save_path, 'reconstruction_train')
 
             write_images(data, outputs, writer, 'train')
 
@@ -242,6 +243,7 @@ def test_net(epoch, model, test_loader, cuda, save_path, args, writer):
             if cuda:
                 data = data.cuda()
             outputs = model(data)
+            if (epoch==args.epochs): save_latents(outputs, i, 'latent_variables/', epoch, 'test')
             model.loss_function(data, *outputs)
             latest_losses = model.latest_losses()
             for key in latest_losses:
@@ -249,7 +251,7 @@ def test_net(epoch, model, test_loader, cuda, save_path, args, writer):
             if i == 0:
                 write_images(data, outputs, writer, 'test')
 
-                save_reconstructed_images(data, epoch, outputs[0], save_path, 'reconstruction_test')
+                save_reconstructed_images(data, epoch, outputs, save_path, 'reconstruction_test')
                 save_checkpoint(model, epoch, save_path)
             if args.dataset == 'imagenet' and i * len(data) > 1000:
                 break
@@ -277,8 +279,13 @@ def save_reconstructed_images(data, epoch, outputs, save_path, name):
     size = data.size()
     n = min(data.size(0), 8)
     batch_size = data.size(0)
+    print("data shape in the image is {}".format(data.shape))
+    print("output images  shape is {}".format(outputs[0].view(batch_size, size[1], size[2], size[3])[:n].shape))
+    print("Embedding shape is {}".format(outputs[2].shape))
+    print("Encoder output shape is {}".format(outputs[1].shape))
+
     comparison = torch.cat([data[:n],
-                            outputs.view(batch_size, size[1], size[2], size[3])[:n]])
+                            outputs[0].view(batch_size, size[1], size[2], size[3])[:n]])
     save_image(comparison.cpu(),
                os.path.join(save_path, name + '_' + str(epoch) + '.png'), nrow=n, normalize=True)
 
@@ -288,6 +295,10 @@ def save_checkpoint(model, epoch, save_path):
     checkpoint_path = os.path.join(save_path, 'checkpoints', f'model_{epoch}.pth')
     torch.save(model.state_dict(), checkpoint_path)
 
+def save_latents(outputs_VQCVAE, image_number, dir_path, epoch, name_string):
+    with open(dir_path+str(image_number)+name_string+"Epoch"+str(epoch)+'.dill', 'wb') as file:
+        dill.dump(outputs_VQCVAE[2], file)
+        file.close()
 
 if __name__ == "__main__":
     main(sys.argv[1:])

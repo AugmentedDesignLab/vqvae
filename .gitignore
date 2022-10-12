@@ -1,6 +1,8 @@
 #
 .vscode/
 results/
+latent_variables/
+images/*/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
